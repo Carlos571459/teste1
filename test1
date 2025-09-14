@@ -1,987 +1,437 @@
--- Script Universal Roblox: GUI Admin com Abas Organizadas
--- Compatível com PC e Mobile - Todos os Executors
+-- Remote Spy - Versão com Monitoramento Direto
+-- Para exploits que não suportam hooks
 
--- Proteção e compatibilidade universal
-local function safeGetService(serviceName)
-	local success, service = pcall(function()
-		return game:GetService(serviceName)
-	end)
-	return success and service or nil
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Remover GUI anterior
+if CoreGui:FindFirstChild("RemoteSpyGUI") then
+    CoreGui:FindFirstChild("RemoteSpyGUI"):Destroy()
 end
 
--- Serviços com fallback
-local Players = safeGetService("Players") or game.Players
-local UserInputService = safeGetService("UserInputService")
-local TweenService = safeGetService("TweenService")
-local RunService = safeGetService("RunService") or game:GetService("Heartbeat")
-local GuiService = safeGetService("GuiService")
-
--- Detecção de plataforma
-local isMobile = UserInputService and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-local isTablet = UserInputService and UserInputService.TouchEnabled and UserInputService.KeyboardEnabled
-
--- Compatibilidade com diferentes executors
-local player = Players.LocalPlayer or Players:GetPlayers()[1]
-local playerGui = player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui", 5)
-
--- Se não conseguir PlayerGui, cria um alternativo
-if not playerGui then
-	playerGui = Instance.new("ScreenGui")
-	playerGui.Parent = game.CoreGui
-	playerGui.Name = "UniversalGUI"
+-- Funções de compatibilidade
+local setclipboard = setclipboard or toclipboard or (syn and syn.write_clipboard) or function(text) 
+    print("Clipboard:", text) 
 end
 
--- Variáveis de controle
-local speedEnabled = false
-local jumpEnabled = false
-local antiAfkEnabled = false
-local noclipEnabled = false
-local flyEnabled = false
-local currentSpeed = 50
-local currentTab = "Normal"
+-- Dados dos remotes
+local monitoredRemotes = {}
+local remoteData = {}
 local connections = {}
 
--- Configurações responsivas
-local guiSize = isMobile and {320, 420} or {360, 450}
-local buttonHeight = isMobile and 35 or 40
-local fontSize = isMobile and 12 or 14
+-- Criar GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "RemoteSpyGUI"
+ScreenGui.ResetOnSpawn = false
 
--- Função para limpar conexões
-local function cleanupConnections()
-	for i, connection in pairs(connections) do
-		if connection and typeof(connection) == "RBXScriptConnection" then
-			connection:Disconnect()
-		end
-	end
-	connections = {}
+-- Proteger GUI
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+end
+ScreenGui.Parent = CoreGui
+
+-- Frame principal
+local MainFrame = Instance.new("Frame")
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
+MainFrame.Size = UDim2.new(0, 500, 0, 400)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Parent = MainFrame
+Header.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Header.BorderSizePixel = 0
+Header.Size = UDim2.new(1, 0, 0, 40)
+
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 10)
+HeaderCorner.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Parent = Header
+Title.BackgroundTransparency = 1
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.Size = UDim2.new(1, -100, 1, 0)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "Remote Spy - Monitor Direto"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Botão Fechar
+local CloseButton = Instance.new("TextButton")
+CloseButton.Parent = Header
+CloseButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseButton.BorderSizePixel = 0
+CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 18
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 15)
+CloseCorner.Parent = CloseButton
+
+-- Botão Minimizar
+local MinimizeButton = Instance.new("TextButton")
+MinimizeButton.Parent = Header
+MinimizeButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+MinimizeButton.BorderSizePixel = 0
+MinimizeButton.Position = UDim2.new(1, -70, 0, 5)
+MinimizeButton.Size = UDim2.new(0, 30, 0, 30)
+MinimizeButton.Font = Enum.Font.GothamBold
+MinimizeButton.Text = "-"
+MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinimizeButton.TextSize = 20
+
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 15)
+MinCorner.Parent = MinimizeButton
+
+-- Container de conteúdo
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Parent = MainFrame
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Position = UDim2.new(0, 10, 0, 50)
+ContentFrame.Size = UDim2.new(1, -20, 1, -60)
+
+-- Lista de remotes encontrados
+local RemotesList = Instance.new("ScrollingFrame")
+RemotesList.Parent = ContentFrame
+RemotesList.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+RemotesList.BorderSizePixel = 0
+RemotesList.Position = UDim2.new(0, 0, 0, 0)
+RemotesList.Size = UDim2.new(0.6, -5, 1, -40)
+RemotesList.ScrollBarThickness = 8
+RemotesList.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+
+local ListCorner = Instance.new("UICorner")
+ListCorner.CornerRadius = UDim.new(0, 8)
+ListCorner.Parent = RemotesList
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Parent = RemotesList
+ListLayout.Padding = UDim.new(0, 3)
+ListLayout.SortOrder = Enum.SortOrder.Name
+
+-- Painel de informações
+local InfoFrame = Instance.new("Frame")
+InfoFrame.Parent = ContentFrame
+InfoFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+InfoFrame.BorderSizePixel = 0
+InfoFrame.Position = UDim2.new(0.6, 5, 0, 0)
+InfoFrame.Size = UDim2.new(0.4, -5, 1, -40)
+
+local InfoCorner = Instance.new("UICorner")
+InfoCorner.CornerRadius = UDim.new(0, 8)
+InfoCorner.Parent = InfoFrame
+
+-- Texto de informações
+local InfoText = Instance.new("TextLabel")
+InfoText.Parent = InfoFrame
+InfoText.BackgroundTransparency = 1
+InfoText.Position = UDim2.new(0, 10, 0, 10)
+InfoText.Size = UDim2.new(1, -20, 1, -80)
+InfoText.Font = Enum.Font.Code
+InfoText.Text = "Clique em um remote para ver detalhes"
+InfoText.TextColor3 = Color3.fromRGB(200, 200, 200)
+InfoText.TextSize = 11
+InfoText.TextWrapped = true
+InfoText.TextYAlignment = Enum.TextYAlignment.Top
+
+-- Botão de copiar
+local CopyButton = Instance.new("TextButton")
+CopyButton.Parent = InfoFrame
+CopyButton.BackgroundColor3 = Color3.fromRGB(70, 130, 250)
+CopyButton.BorderSizePixel = 0
+CopyButton.Position = UDim2.new(0, 10, 1, -35)
+CopyButton.Size = UDim2.new(1, -20, 0, 25)
+CopyButton.Font = Enum.Font.Gotham
+CopyButton.Text = "Copiar Caminho"
+CopyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyButton.TextSize = 12
+
+local CopyCorner = Instance.new("UICorner")
+CopyCorner.CornerRadius = UDim.new(0, 5)
+CopyCorner.Parent = CopyButton
+
+-- Botões de controle
+local ControlFrame = Instance.new("Frame")
+ControlFrame.Parent = ContentFrame
+ControlFrame.BackgroundTransparency = 1
+ControlFrame.Position = UDim2.new(0, 0, 1, -30)
+ControlFrame.Size = UDim2.new(1, 0, 0, 30)
+
+local ScanButton = Instance.new("TextButton")
+ScanButton.Parent = ControlFrame
+ScanButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+ScanButton.BorderSizePixel = 0
+ScanButton.Position = UDim2.new(0, 0, 0, 0)
+ScanButton.Size = UDim2.new(0, 100, 1, 0)
+ScanButton.Font = Enum.Font.Gotham
+ScanButton.Text = "Escanear"
+ScanButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScanButton.TextSize = 12
+
+local ScanCorner = Instance.new("UICorner")
+ScanCorner.CornerRadius = UDim.new(0, 5)
+ScanCorner.Parent = ScanButton
+
+local ClearButton = Instance.new("TextButton")
+ClearButton.Parent = ControlFrame
+ClearButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+ClearButton.BorderSizePixel = 0
+ClearButton.Position = UDim2.new(0, 110, 0, 0)
+ClearButton.Size = UDim2.new(0, 80, 1, 0)
+ClearButton.Font = Enum.Font.Gotham
+ClearButton.Text = "Limpar"
+ClearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ClearButton.TextSize = 12
+
+local ClearCorner = Instance.new("UICorner")
+ClearCorner.CornerRadius = UDim.new(0, 5)
+ClearCorner.Parent = ClearButton
+
+-- Status
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Parent = ControlFrame
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Position = UDim2.new(0, 200, 0, 0)
+StatusLabel.Size = UDim2.new(1, -200, 1, 0)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "Pressione 'Escanear' para encontrar remotes"
+StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+StatusLabel.TextSize = 11
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Variáveis de controle
+local selectedRemote = nil
+local isMinimized = false
+local foundRemotes = {}
+
+-- Função para obter caminho da instância
+local function getPath(obj)
+    if not obj or not obj.Parent then return "nil" end
+    
+    local path = {}
+    local current = obj
+    
+    while current and current ~= game do
+        local name = current.Name
+        if name:match("^[%a_][%w_]*$") and not tonumber(name:sub(1,1)) then
+            table.insert(path, 1, name)
+        else
+            table.insert(path, 1, '["' .. name:gsub('"', '\\"') .. '"]')
+        end
+        current = current.Parent
+    end
+    
+    if obj.Parent == game then
+        return "game." .. table.concat(path, ".")
+    else
+        local success, service = pcall(function() return game:GetService(obj.Parent.ClassName) end)
+        if success and service == obj.Parent then
+            return 'game:GetService("' .. obj.Parent.ClassName .. '").' .. table.concat(path, ".", 2)
+        end
+    end
+    
+    return "game." .. table.concat(path, ".")
 end
 
--- Funções auxiliares
-local function getCharacter()
-	return player.Character or player.CharacterAdded:Wait()
+-- Função para criar item de remote na lista
+local function createRemoteItem(remote)
+    local remoteName = remote.Name
+    local remoteType = remote.ClassName
+    local remotePath = getPath(remote)
+    
+    local ItemFrame = Instance.new("Frame")
+    ItemFrame.Parent = RemotesList
+    ItemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    ItemFrame.BorderSizePixel = 0
+    ItemFrame.Size = UDim2.new(1, -10, 0, 35)
+    
+    local ItemCorner = Instance.new("UICorner")
+    ItemCorner.CornerRadius = UDim.new(0, 5)
+    ItemCorner.Parent = ItemFrame
+    
+    local TypeLabel = Instance.new("TextLabel")
+    TypeLabel.Parent = ItemFrame
+    TypeLabel.BackgroundTransparency = 1
+    TypeLabel.Position = UDim2.new(0, 8, 0, 0)
+    TypeLabel.Size = UDim2.new(0, 20, 1, 0)
+    TypeLabel.Font = Enum.Font.GothamBold
+    TypeLabel.Text = remoteType == "RemoteEvent" and "E" or "F"
+    TypeLabel.TextColor3 = remoteType == "RemoteEvent" and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(255, 200, 100)
+    TypeLabel.TextSize = 14
+    
+    local NameLabel = Instance.new("TextLabel")
+    NameLabel.Parent = ItemFrame
+    NameLabel.BackgroundTransparency = 1
+    NameLabel.Position = UDim2.new(0, 35, 0, 0)
+    NameLabel.Size = UDim2.new(1, -40, 1, 0)
+    NameLabel.Font = Enum.Font.Gotham
+    NameLabel.Text = remoteName
+    NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    NameLabel.TextSize = 12
+    NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    NameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    local Button = Instance.new("TextButton")
+    Button.Parent = ItemFrame
+    Button.BackgroundTransparency = 1
+    Button.Size = UDim2.new(1, 0, 1, 0)
+    Button.Text = ""
+    
+    Button.MouseButton1Click:Connect(function()
+        selectedRemote = remote
+        
+        -- Destacar seleção
+        for _, child in pairs(RemotesList:GetChildren()) do
+            if child:IsA("Frame") then
+                child.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            end
+        end
+        ItemFrame.BackgroundColor3 = Color3.fromRGB(70, 130, 250)
+        
+        -- Atualizar informações
+        local methodName = remoteType == "RemoteEvent" and "FireServer" or "InvokeServer"
+        local info = string.format("Nome: %s\nTipo: %s\nLocalização: %s\n\nCaminho completo:\n%s\n\nPara usar:\n%s:%s(args)",
+            remoteName,
+            remoteType,
+            remote.Parent and remote.Parent.Name or "Desconhecido",
+            remotePath,
+            remotePath,
+            methodName
+        )
+        
+        InfoText.Text = info
+    end)
+    
+    return ItemFrame
 end
 
-local function getHumanoid()
-	local character = getCharacter()
-	return character and character:FindFirstChild("Humanoid")
+-- Função para escanear remotes
+local function scanForRemotes()
+    -- Limpar lista atual
+    for _, child in pairs(RemotesList:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+    
+    foundRemotes = {}
+    local count = 0
+    
+    -- Escanear no jogo inteiro
+    local function scanDescendants(parent)
+        for _, obj in pairs(parent:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                if not foundRemotes[obj] then
+                    foundRemotes[obj] = true
+                    createRemoteItem(obj)
+                    count = count + 1
+                end
+            end
+        end
+    end
+    
+    -- Escanear locais importantes
+    scanDescendants(game.ReplicatedStorage)
+    scanDescendants(game.ReplicatedFirst)
+    scanDescendants(game.Lighting)
+    scanDescendants(game.ServerStorage or game.ReplicatedStorage) -- Fallback
+    scanDescendants(game.StarterPlayer)
+    scanDescendants(game.StarterPack)
+    scanDescendants(game.StarterGui)
+    
+    -- Atualizar interface
+    RemotesList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 10)
+    StatusLabel.Text = string.format("Encontrados: %d remotes", count)
 end
 
-local function getRootPart()
-	local character = getCharacter()
-	return character and (character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso"))
-end
-
--- Criar GUI principal
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "UniversalAdminGUI_" .. math.random(1000, 9999)
-screenGui.Parent = playerGui
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.DisplayOrder = 999999
-
--- Proteção contra detecção
-pcall(function()
-	screenGui.Parent = game.CoreGui
+-- Eventos dos botões
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
 end)
 
--- Frame principal (menor e responsivo)
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, guiSize[1], 0, guiSize[2])
-mainFrame.Position = UDim2.new(0.5, -guiSize[1]/2, 0.5, -guiSize[2]/2)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = not isMobile -- Não arrastar no mobile
-mainFrame.Parent = screenGui
-
--- Cantos arredondados
-pcall(function()
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = mainFrame
+MinimizeButton.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        MainFrame:TweenSize(UDim2.new(0, 500, 0, 40), "Out", "Quad", 0.3)
+        ContentFrame.Visible = false
+        MinimizeButton.Text = "+"
+    else
+        MainFrame:TweenSize(UDim2.new(0, 500, 0, 400), "Out", "Quad", 0.3)
+        ContentFrame.Visible = true
+        MinimizeButton.Text = "-"
+    end
 end)
 
--- Header com título e botões
-local headerFrame = Instance.new("Frame")
-headerFrame.Name = "Header"
-headerFrame.Size = UDim2.new(1, 0, 0, 35)
-headerFrame.Position = UDim2.new(0, 0, 0, 0)
-headerFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
-headerFrame.BorderSizePixel = 0
-headerFrame.Parent = mainFrame
-
-pcall(function()
-	local headerCorner = Instance.new("UICorner")
-	headerCorner.CornerRadius = UDim.new(0, 8)
-	headerCorner.Parent = headerFrame
+ScanButton.MouseButton1Click:Connect(function()
+    ScanButton.Text = "Escaneando..."
+    ScanButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+    
+    wait(0.1) -- Para mostrar o feedback visual
+    scanForRemotes()
+    
+    ScanButton.Text = "Escanear"
+    ScanButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
 end)
 
--- Título compacto
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Name = "Title"
-titleLabel.Size = UDim2.new(1, -80, 1, 0)
-titleLabel.Position = UDim2.new(0, 10, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "🎮 ADMIN"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.TextSize = isMobile and 14 or 16
-titleLabel.Font = Enum.Font.SourceSansBold
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = headerFrame
-
--- Botão minimizar
-local minimizeButton = Instance.new("TextButton")
-minimizeButton.Name = "MinimizeButton"
-minimizeButton.Size = UDim2.new(0, 25, 0, 25)
-minimizeButton.Position = UDim2.new(1, -60, 0, 5)
-minimizeButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-minimizeButton.Text = "—"
-minimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-minimizeButton.TextSize = 14
-minimizeButton.Font = Enum.Font.SourceSansBold
-minimizeButton.BorderSizePixel = 0
-minimizeButton.Parent = headerFrame
-
--- Botão fechar
-local closeButton = Instance.new("TextButton")
-closeButton.Name = "CloseButton"
-closeButton.Size = UDim2.new(0, 25, 0, 25)
-closeButton.Position = UDim2.new(1, -30, 0, 5)
-closeButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-closeButton.Text = "✕"
-closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeButton.TextSize = 12
-closeButton.Font = Enum.Font.SourceSansBold
-closeButton.BorderSizePixel = 0
-closeButton.Parent = headerFrame
-
--- Cantos dos botões
-pcall(function()
-	local minCorner = Instance.new("UICorner")
-	minCorner.CornerRadius = UDim.new(0, 4)
-	minCorner.Parent = minimizeButton
-
-	local closeCorner = Instance.new("UICorner")
-	closeCorner.CornerRadius = UDim.new(0, 4)
-	closeCorner.Parent = closeButton
+ClearButton.MouseButton1Click:Connect(function()
+    for _, child in pairs(RemotesList:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+    foundRemotes = {}
+    selectedRemote = nil
+    InfoText.Text = "Clique em um remote para ver detalhes"
+    StatusLabel.Text = "Lista limpa"
 end)
 
--- Frame para as abas
-local tabFrame = Instance.new("Frame")
-tabFrame.Name = "TabFrame"
-tabFrame.Size = UDim2.new(1, -10, 0, 30)
-tabFrame.Position = UDim2.new(0, 5, 0, 40)
-tabFrame.BackgroundTransparency = 1
-tabFrame.Parent = mainFrame
-
--- Container para conteúdo das abas
-local contentFrame = Instance.new("Frame")
-contentFrame.Name = "ContentFrame"
-contentFrame.Size = UDim2.new(1, -10, 1, -80)
-contentFrame.Position = UDim2.new(0, 5, 0, 75)
-contentFrame.BackgroundTransparency = 1
-contentFrame.Parent = mainFrame
-
--- Definição das abas
-local tabs = {
-	{name = "Mini", color = Color3.fromRGB(60, 120, 180), icon = "⚡"},
-	{name = "Config", color = Color3.fromRGB(120, 80, 180), icon = "⚙️"},
-	{name = "Universal", color = Color3.fromRGB(180, 60, 60), icon = "🌍"},
-	{name = "Jogos", color = Color3.fromRGB(60, 180, 120), icon = "🎮"}
-}
-
-local tabButtons = {}
-local tabContents = {}
-
--- Criar botões das abas
-for i, tab in ipairs(tabs) do
-	local tabButton = Instance.new("TextButton")
-	tabButton.Name = tab.name .. "Tab"
-	tabButton.Size = UDim2.new(0.25, -2, 1, 0)
-	tabButton.Position = UDim2.new((i-1) * 0.25, 1, 0, 0)
-	tabButton.BackgroundColor3 = i == 1 and tab.color or Color3.fromRGB(40, 40, 55)
-	tabButton.Text = tab.icon .. (isMobile and "" or " " .. tab.name)
-	tabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	tabButton.TextSize = isMobile and 10 or 12
-	tabButton.Font = Enum.Font.SourceSans
-	tabButton.BorderSizePixel = 0
-	tabButton.Parent = tabFrame
-
-	pcall(function()
-		local tabCorner = Instance.new("UICorner")
-		tabCorner.CornerRadius = UDim.new(0, 4)
-		tabCorner.Parent = tabButton
-	end)
-
-	tabButtons[tab.name] = {button = tabButton, color = tab.color}
-
-	-- Criar conteúdo da aba
-	local scrollFrame = Instance.new("ScrollingFrame")
-	scrollFrame.Name = tab.name .. "Content"
-	scrollFrame.Size = UDim2.new(1, 0, 1, 0)
-	scrollFrame.Position = UDim2.new(0, 0, 0, 0)
-	scrollFrame.BackgroundTransparency = 1
-	scrollFrame.ScrollBarThickness = 4
-	scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 600)
-	scrollFrame.Visible = i == 1
-	scrollFrame.Parent = contentFrame
-
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, 5)
-	listLayout.Parent = scrollFrame
-
-	tabContents[tab.name] = scrollFrame
-end
-
--- Função para trocar aba
-local function switchTab(tabName)
-	currentTab = tabName
-
-	for name, data in pairs(tabButtons) do
-		local isActive = name == tabName
-		data.button.BackgroundColor3 = isActive and data.color or Color3.fromRGB(40, 40, 55)
-		tabContents[name].Visible = isActive
-	end
-end
-
--- Conectar botões das abas
-for name, data in pairs(tabButtons) do
-	data.button.MouseButton1Click:Connect(function()
-		switchTab(name)
-	end)
-end
-
--- Função para criar botões toggle responsivos
-local function createToggleButton(parent, name, text, callback, layoutOrder)
-	local button = Instance.new("TextButton")
-	button.Name = name
-	button.Size = UDim2.new(1, -10, 0, buttonHeight)
-	button.Position = UDim2.new(0, 5, 0, 0)
-	button.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-	button.Text = text .. ": OFF"
-	button.TextColor3 = Color3.fromRGB(255, 255, 255)
-	button.TextSize = fontSize
-	button.Font = Enum.Font.SourceSans
-	button.BorderSizePixel = 0
-	button.LayoutOrder = layoutOrder or 1
-	button.Parent = parent
-
-	pcall(function()
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 4)
-		corner.Parent = button
-	end)
-
-	local isEnabled = false
-
-	button.MouseButton1Click:Connect(function()
-		isEnabled = not isEnabled
-		button.BackgroundColor3 = isEnabled and Color3.fromRGB(60, 150, 60) or Color3.fromRGB(40, 40, 55)
-		button.Text = text .. ": " .. (isEnabled and "ON" or "OFF")
-
-		-- Feedback tátil para mobile
-		if isMobile and GuiService then
-			pcall(function()
-				GuiService:GetTouchDevice():SendEvent("TouchTap", button.AbsolutePosition, button.AbsoluteSize)
-			end)
-		end
-
-		callback(isEnabled)
-	end)
-
-	return button
-end
-
--- Função para criar slider responsivo
-local function createSpeedSlider(parent, layoutOrder)
-	local sliderFrame = Instance.new("Frame")
-	sliderFrame.Name = "SpeedSlider"
-	sliderFrame.Size = UDim2.new(1, -10, 0, isMobile and 50 or 60)
-	sliderFrame.Position = UDim2.new(0, 5, 0, 0)
-	sliderFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-	sliderFrame.BorderSizePixel = 0
-	sliderFrame.LayoutOrder = layoutOrder or 2
-	sliderFrame.Parent = parent
-
-	pcall(function()
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 4)
-		corner.Parent = sliderFrame
-	end)
-
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, 0, 0, 20)
-	titleLabel.Position = UDim2.new(0, 0, 0, 2)
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "⚡ Velocidade: 50"
-	titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	titleLabel.TextSize = fontSize - 1
-	titleLabel.Font = Enum.Font.SourceSansBold
-	titleLabel.Parent = sliderFrame
-
-	local sliderBg = Instance.new("Frame")
-	sliderBg.Size = UDim2.new(1, -20, 0, 4)
-	sliderBg.Position = UDim2.new(0, 10, 0, 25)
-	sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-	sliderBg.BorderSizePixel = 0
-	sliderBg.Parent = sliderFrame
-
-	local sliderButton = Instance.new("TextButton")
-	sliderButton.Size = UDim2.new(0, isMobile and 15 or 18, 0, isMobile and 15 or 18)
-	sliderButton.Position = UDim2.new(0.2, -(isMobile and 7.5 or 9), 0, -(isMobile and 5.5 or 7))
-	sliderButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
-	sliderButton.Text = ""
-	sliderButton.BorderSizePixel = 0
-	sliderButton.Parent = sliderBg
-
-	pcall(function()
-		local knobCorner = Instance.new("UICorner")
-		knobCorner.CornerRadius = UDim.new(0, isMobile and 7.5 or 9)
-		knobCorner.Parent = sliderButton
-	end)
-
-	local dragging = false
-
-	local function updateSlider(input)
-		if dragging then
-			local percentage = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
-			currentSpeed = math.floor(16 + (300 - 16) * percentage)
-			sliderButton.Position = UDim2.new(percentage, -(isMobile and 7.5 or 9), 0, -(isMobile and 5.5 or 7))
-			titleLabel.Text = "⚡ Velocidade: " .. currentSpeed
-
-			if speedEnabled then
-				local humanoid = getHumanoid()
-				if humanoid then
-					humanoid.WalkSpeed = currentSpeed
-				end
-			end
-		end
-	end
-
-	-- Sistema touch/mouse universal
-	sliderButton.MouseButton1Down:Connect(function()
-		dragging = true
-	end)
-
-	if UserInputService then
-		connections[#connections + 1] = UserInputService.InputChanged:Connect(updateSlider)
-		connections[#connections + 1] = UserInputService.InputEnded:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				dragging = false
-			end
-		end)
-	end
-end
-
--- CONTEÚDO DAS ABAS
-
--- ABA MINI (todas as funcionalidades principais)
-createToggleButton(tabContents["Mini"], "SpeedToggle", "🏃 Velocidade", function(enabled)
-	speedEnabled = enabled
-	local humanoid = getHumanoid()
-	if humanoid then
-		if enabled then
-			humanoid.WalkSpeed = currentSpeed
-		else
-			humanoid.WalkSpeed = 16
-		end
-	end
-end, 1)
-
-createSpeedSlider(tabContents["Mini"], 2)
-
-createToggleButton(tabContents["Mini"], "JumpToggle", "🦘 Pulo Infinito", function(enabled)
-	jumpEnabled = enabled
-
-	if connections.jump then
-		connections.jump:Disconnect()
-		connections.jump = nil
-	end
-
-	if enabled and UserInputService then
-		connections.jump = UserInputService.JumpRequest:Connect(function()
-			local character = getCharacter()
-			if character then
-				local humanoid = character:FindFirstChild("Humanoid")
-				local rootPart = getRootPart()
-				if humanoid and rootPart then
-					humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-					-- Força adicional para garantir o pulo
-					rootPart.Velocity = Vector3.new(rootPart.Velocity.X, 50, rootPart.Velocity.Z)
-				end
-			end
-		end)
-	end
-end, 3)
-
-createToggleButton(tabContents["Mini"], "EspToggle", "👁️ ESP Players", function(enabled)
-	if connections.esp then
-		for _, connection in pairs(connections.esp) do
-			if connection and typeof(connection) == "RBXScriptConnection" then
-				connection:Disconnect()
-			elseif connection and connection.Destroy then
-				connection:Destroy()
-			end
-		end
-		connections.esp = nil
-	end
-
-	if enabled then
-		connections.esp = {}
-
-		local function createESP(player)
-			if player == Players.LocalPlayer then return end
-
-			local function addESP()
-				local character = player.Character
-				if not character then return end
-
-				local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
-				if not rootPart then return end
-
-				-- Remove ESP anterior se existir
-				local oldESP = rootPart:FindFirstChild("ESP_GUI")
-				if oldESP then oldESP:Destroy() end
-
-				-- Criar ESP GUI
-				local billboardGui = Instance.new("BillboardGui")
-				billboardGui.Name = "ESP_GUI"
-				billboardGui.Adornee = rootPart
-				billboardGui.Size = UDim2.new(0, 100, 0, 50)
-				billboardGui.StudsOffset = Vector3.new(0, 3, 0)
-				billboardGui.AlwaysOnTop = true
-				billboardGui.Parent = rootPart
-
-				local nameLabel = Instance.new("TextLabel")
-				nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-				nameLabel.Position = UDim2.new(0, 0, 0, 0)
-				nameLabel.BackgroundTransparency = 1
-				nameLabel.Text = player.Name
-				nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-				nameLabel.TextScaled = true
-				nameLabel.Font = Enum.Font.SourceSansBold
-				nameLabel.TextStrokeTransparency = 0
-				nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-				nameLabel.Parent = billboardGui
-
-				local distanceLabel = Instance.new("TextLabel")
-				distanceLabel.Size = UDim2.new(1, 0, 0.5, 0)
-				distanceLabel.Position = UDim2.new(0, 0, 0.5, 0)
-				distanceLabel.BackgroundTransparency = 1
-				distanceLabel.Text = "0 studs"
-				distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-				distanceLabel.TextScaled = true
-				distanceLabel.Font = Enum.Font.SourceSans
-				distanceLabel.TextStrokeTransparency = 0
-				distanceLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-				distanceLabel.Parent = billboardGui
-
-				-- Outline do player
-				local function addOutline(part)
-					if not part:IsA("BasePart") then return end
-
-					local selectionBox = Instance.new("SelectionBox")
-					selectionBox.Name = "ESP_Outline"
-					selectionBox.Adornee = part
-					selectionBox.Color3 = Color3.fromRGB(255, 0, 0)
-					selectionBox.LineThickness = 0.1
-					selectionBox.Transparency = 0.5
-					selectionBox.Parent = part
-				end
-
-				for _, part in pairs(character:GetChildren()) do
-					addOutline(part)
-				end
-
-				-- Atualizar distância
-				local updateConnection = RunService.Heartbeat:Connect(function()
-					local myChar = getCharacter()
-					local myRoot = myChar and getRootPart()
-					if myRoot and rootPart then
-						local distance = math.floor((myRoot.Position - rootPart.Position).Magnitude)
-						distanceLabel.Text = distance .. " studs"
-					end
-				end)
-
-				table.insert(connections.esp, updateConnection)
-				table.insert(connections.esp, billboardGui)
-			end
-
-			if player.Character then
-				addESP()
-			end
-
-			local charConnection = player.CharacterAdded:Connect(addESP)
-			table.insert(connections.esp, charConnection)
-		end
-
-		-- ESP para todos os players atuais
-		for _, player in pairs(Players:GetPlayers()) do
-			createESP(player)
-		end
-
-		-- ESP para novos players
-		local newPlayerConnection = Players.PlayerAdded:Connect(createESP)
-		table.insert(connections.esp, newPlayerConnection)
-	end
-end, 4)
-
-createToggleButton(tabContents["Mini"], "NoclipToggle", "👻 Noclip", function(enabled)
-	noclipEnabled = enabled
-
-	if connections.noclip then
-		connections.noclip:Disconnect()
-		connections.noclip = nil
-	end
-
-	if enabled and RunService then
-		connections.noclip = RunService.Stepped:Connect(function()
-			local character = getCharacter()
-			if character then
-				for _, part in pairs(character:GetChildren()) do
-					if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-						part.CanCollide = false
-					end
-				end
-			end
-		end)
-	else
-		-- Restaurar colisão
-		local character = getCharacter()
-		if character then
-			for _, part in pairs(character:GetChildren()) do
-				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-					part.CanCollide = true
-				end
-			end
-		end
-	end
-end, 5)
-
-createToggleButton(tabContents["Mini"], "GodModeToggle", "🛡️ God Mode", function(enabled)
-	if connections.godmode then
-		for _, connection in pairs(connections.godmode) do
-			if connection and typeof(connection) == "RBXScriptConnection" then
-				connection:Disconnect()
-			end
-		end
-		connections.godmode = nil
-	end
-
-	if enabled then
-		connections.godmode = {}
-
-		local function setupGodMode()
-			local character = getCharacter()
-			local humanoid = getHumanoid()
-
-			if humanoid then
-				-- Método 1: Vida infinita
-				humanoid.MaxHealth = math.huge
-				humanoid.Health = math.huge
-
-				-- Método 2: Interceptar mudanças de vida
-				table.insert(connections.godmode, humanoid.HealthChanged:Connect(function()
-					if humanoid.Health < math.huge then
-						humanoid.Health = math.huge
-					end
-				end))
-
-				-- Método 3: Interceptar dano direto
-				table.insert(connections.godmode, humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-					if humanoid.Health < math.huge then
-						humanoid.Health = math.huge
-					end
-				end))
-
-				-- Método 4: Proteção contra estados perigosos
-				table.insert(connections.godmode, humanoid.StateChanged:Connect(function(oldState, newState)
-					if newState == Enum.HumanoidStateType.Dead then
-						humanoid:ChangeState(Enum.HumanoidStateType.Running)
-						humanoid.Health = math.huge
-					end
-				end))
-
-				-- Método 5: Proteção contra forcefield removal
-				table.insert(connections.godmode, RunService.Heartbeat:Connect(function()
-					if not character:FindFirstChild("ForceField") then
-						local ff = Instance.new("ForceField")
-						ff.Visible = false
-						ff.Parent = character
-					end
-				end))
-
-				-- Método 6: Proteção contra fall damage e outros danos
-				if character then
-					for _, part in pairs(character:GetChildren()) do
-						if part:IsA("BasePart") then
-							-- Remove damage scripts
-							for _, script in pairs(part:GetChildren()) do
-								if script:IsA("Script") or script:IsA("LocalScript") then
-									if string.find(string.lower(script.Name), "damage") or 
-										string.find(string.lower(script.Name), "hurt") or 
-										string.find(string.lower(script.Name), "kill") then
-										script:Destroy()
-									end
-								end
-							end
-						end
-					end
-				end
-
-				-- Método 7: Hook metamethods para interceptar dano
-				pcall(function()
-					local oldIndex = nil
-					oldIndex = hookmetamethod(game, "__index", function(self, key)
-						if self == humanoid and key == "Health" then
-							return math.huge
-						end
-						return oldIndex(self, key)
-					end)
-
-					local oldNewIndex = nil
-					oldNewIndex = hookmetamethod(game, "__newindex", function(self, key, value)
-						if self == humanoid and key == "Health" and value < math.huge then
-							return
-						end
-						return oldNewIndex(self, key, value)
-					end)
-				end)
-			end
-		end
-
-		setupGodMode()
-
-		-- Reaplicar god mode quando respawnar
-		table.insert(connections.godmode, player.CharacterAdded:Connect(function()
-			wait(1) -- Esperar character carregar
-			setupGodMode()
-		end))
-
-	else
-		-- Desativar god mode
-		local character = getCharacter()
-		local humanoid = getHumanoid()
-
-		if humanoid then
-			humanoid.MaxHealth = 100
-			humanoid.Health = 100
-		end
-
-		if character then
-			local ff = character:FindFirstChild("ForceField")
-			if ff then ff:Destroy() end
-		end
-	end
-end, 6)
-
-createToggleButton(tabContents["Mini"], "AntiAFKToggle", "💤 Anti-AFK", function(enabled)
-	antiAfkEnabled = enabled
-
-	if connections.antiafk then
-		connections.antiafk:Disconnect()
-		connections.antiafk = nil
-	end
-
-	if enabled and RunService then
-		connections.antiafk = RunService.Heartbeat:Connect(function()
-			-- Movimento sutil para evitar AFK
-			if math.random(1, 5000) == 1 then
-				local rootPart = getRootPart()
-				if rootPart then
-					rootPart.CFrame = rootPart.CFrame * CFrame.new(0, 0, 0.001)
-				end
-			end
-		end)
-	end
-end, 7)
-
-createToggleButton(tabContents["Mini"], "AntiKickToggle", "🚫 Anti-Kick", function(enabled)
-	if connections.antikick then
-		connections.antikick:Disconnect()
-		connections.antikick = nil
-	end
-
-	if enabled then
-		-- Proteção contra kick por métodos comuns
-		local oldNamecall = nil
-		oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-			local method = getnamecallmethod()
-			local args = {...}
-
-			if method == "Kick" then
-				return nil
-			elseif method == "kick" then
-				return nil  
-			elseif method == "FireServer" and string.find(tostring(self), "kick") then
-				return nil
-			end
-
-			return oldNamecall(self, ...)
-		end)
-
-		connections.antikick = {
-			Disconnect = function()
-				if oldNamecall then
-					hookmetamethod(game, "__namecall", oldNamecall)
-				end
-			end
-		}
-	end
-end, 8)
-
--- Botão especial para rejoin
-local rejoinButton = Instance.new("TextButton")
-rejoinButton.Name = "RejoinButton"
-rejoinButton.Size = UDim2.new(1, -10, 0, buttonHeight)
-rejoinButton.Position = UDim2.new(0, 5, 0, 0)
-rejoinButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
-rejoinButton.Text = "🔄 Rejoin Server"
-rejoinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-rejoinButton.TextSize = fontSize
-rejoinButton.Font = Enum.Font.SourceSans
-rejoinButton.BorderSizePixel = 0
-rejoinButton.LayoutOrder = 9
-rejoinButton.Parent = tabContents["Mini"]
-
-pcall(function()
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 4)
-	corner.Parent = rejoinButton
+CopyButton.MouseButton1Click:Connect(function()
+    if selectedRemote then
+        local path = getPath(selectedRemote)
+        local methodName = selectedRemote:IsA("RemoteEvent") and "FireServer" or "InvokeServer"
+        local fullCode = path .. ":" .. methodName .. "()"
+        
+        setclipboard(fullCode)
+        
+        CopyButton.Text = "Copiado!"
+        CopyButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        wait(1)
+        
+        CopyButton.Text = "Copiar Caminho"
+        CopyButton.BackgroundColor3 = Color3.fromRGB(70, 130, 250)
+    end
 end)
 
-rejoinButton.MouseButton1Click:Connect(function()
-	game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+-- Hotkey P para toggle
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.P then
+        ScreenGui.Enabled = not ScreenGui.Enabled
+    end
 end)
 
-createToggleButton(tabContents["Mini"], "FlyToggle", "🛸 Fly (WASD+E/Q)", function(enabled)
-	flyEnabled = enabled
+-- Auto-scan inicial
+wait(1)
+scanForRemotes()
 
-	if connections.fly then
-		for _, connection in pairs(connections.fly) do
-			if connection and typeof(connection) == "RBXScriptConnection" then
-				connection:Disconnect()
-			elseif connection and connection.Destroy then
-				connection:Destroy()
-			end
-		end
-		connections.fly = nil
-	end
-
-	local rootPart = getRootPart()
-	if not rootPart then return end
-
-	if enabled then
-		connections.fly = {}
-
-		-- Método invisível: usando CFrame manipulation em vez de BodyVelocity
-		local flySpeed = currentSpeed or 50
-		local flyConnection
-
-		-- Salvar posição original para restaurar
-		local originalCFrame = rootPart.CFrame
-
-		-- Desativar gravidade de forma indetectável
-		local bodyVelocity = Instance.new("BodyVelocity")
-		bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
-		bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-		bodyVelocity.Parent = rootPart
-
-		-- Sistema de voo indetectável usando CFrame
-		if RunService and UserInputService then
-			flyConnection = RunService.Heartbeat:Connect(function()
-				local camera = workspace.CurrentCamera
-				local moveVector = Vector3.new(0, 0, 0)
-				local humanoid = getHumanoid()
-
-				-- Desativar física temporariamente
-				if humanoid then
-					humanoid.PlatformStand = true
-				end
-
-				-- Capturar input de movimento
-				if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-					moveVector = moveVector + camera.CFrame.LookVector
-				end
-				if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-					moveVector = moveVector - camera.CFrame.LookVector
-				end
-				if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-					moveVector = moveVector - camera.CFrame.RightVector
-				end
-				if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-					moveVector = moveVector + camera.CFrame.RightVector
-				end
-				if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-					moveVector = moveVector + Vector3.new(0, 1, 0)
-				end
-				if UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-					moveVector = moveVector - Vector3.new(0, 1, 0)
-				end
-
-				-- Movimento suave usando CFrame (mais difícil de detectar)
-				if moveVector.Magnitude > 0 then
-					local newPosition = rootPart.Position + (moveVector.Unit * flySpeed * RunService.Heartbeat:Wait())
-					rootPart.CFrame = CFrame.new(newPosition, newPosition + camera.CFrame.LookVector)
-				end
-
-				-- Manter velocidade zero para evitar detecção
-				bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-				rootPart.Velocity = Vector3.new(0, 0, 0)
-			end)
-
-			table.insert(connections.fly, flyConnection)
-			table.insert(connections.fly, bodyVelocity)
-
-			-- Proteção adicional contra anti-fly
-			local antiFlyProtection = RunService.Stepped:Connect(function()
-				local character = getCharacter()
-				if character then
-					-- Desativar scripts de anti-fly
-					for _, obj in pairs(character:GetDescendants()) do
-						if obj:IsA("Script") or obj:IsA("LocalScript") then
-							if string.find(string.lower(obj.Name), "antifly") or 
-								string.find(string.lower(obj.Name), "anti_fly") or
-								string.find(string.lower(obj.Name), "nofly") then
-								obj:Destroy()
-							end
-						end
-					end
-
-					-- Manter partes invisíveis para detecção
-					for _, part in pairs(character:GetChildren()) do
-						if part:IsA("BasePart") and part ~= rootPart then
-							part.CanCollide = false
-						end
-					end
-				end
-			end)
-
-			table.insert(connections.fly, antiFlyProtection)
-
-			-- Sistema de bypass para diferentes anti-cheats
-			local bypassConnection = RunService.Heartbeat:Connect(function()
-				-- Bypass método 1: Simular walking animation
-				local humanoid = getHumanoid()
-				if humanoid then
-					humanoid.WalkSpeed = flySpeed
-
-					-- Simular que está tocando no chão
-					local raycast = workspace:Raycast(rootPart.Position, Vector3.new(0, -1000, 0))
-					if not raycast then
-						-- Criar parte invisível abaixo para simular chão
-						local fakePart = Instance.new("Part")
-						fakePart.Anchored = true
-						fakePart.CanCollide = false
-						fakePart.Transparency = 1
-						fakePart.Size = Vector3.new(4, 1, 4)
-						fakePart.Position = rootPart.Position - Vector3.new(0, 10, 0)
-						fakePart.Parent = workspace
-
-						game:GetService("Debris"):AddItem(fakePart, 0.1)
-					end
-				end
-			end)
-
-			table.insert(connections.fly, bypassConnection)
-		end
-
-	else
-		-- Desativar voo de forma limpa
-		local character = getCharacter()
-		local humanoid = getHumanoid()
-
-		if humanoid then
-			humanoid.PlatformStand = false
-			humanoid.WalkSpeed = 16
-		end
-
-		if character then
-			for _, part in pairs(character:GetChildren()) do
-				if part:IsA("BasePart") and part ~= rootPart then
-					part.CanCollide = true
-				end
-			end
-		end
-
-		-- Remove objetos de voo
-		local bodyVelocity = rootPart:FindFirstChild("BodyVelocity")
-		if bodyVelocity then bodyVelocity:Destroy() end
-
-		-- Resetar velocidade
-		rootPart.Velocity = Vector3.new(0, 0, 0)
-	end
-end, 10)
-
--- Funcionalidade de minimizar
-local minimized = false
-minimizeButton.MouseButton1Click:Connect(function()
-	minimized = not minimized
-	local newSize = minimized and UDim2.new(0, guiSize[1], 0, 35) or UDim2.new(0, guiSize[1], 0, guiSize[2])
-
-	if TweenService then
-		local tween = TweenService:Create(mainFrame, TweenInfo.new(0.3), {Size = newSize})
-		tween:Play()
-	else
-		mainFrame.Size = newSize
-	end
-
-	tabFrame.Visible = not minimized
-	contentFrame.Visible = not minimized
-	minimizeButton.Text = minimized and "+" or "—"
-end)
-
--- Botão fechar
-closeButton.MouseButton1Click:Connect(function()
-	cleanupConnections()
-	screenGui:Destroy()
-end)
-
--- Atalhos (apenas para PC)
-if UserInputService and not isMobile then
-	connections[#connections + 1] = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-
-		if input.KeyCode == Enum.KeyCode.Insert then
-			screenGui.Enabled = not screenGui.Enabled
-		elseif input.KeyCode == Enum.KeyCode.Delete then
-			cleanupConnections()
-			screenGui:Destroy()
-		end
-	end)
-end
-
--- Notificação responsiva
-local notification = Instance.new("TextLabel")
-notification.Size = UDim2.new(0, isMobile and 250 or 300, 0, isMobile and 40 or 50)
-notification.Position = UDim2.new(0.5, isMobile and -125 or -150, 0, 30)
-notification.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-notification.TextColor3 = Color3.fromRGB(255, 255, 255)
-notification.Text = "🎮 ADMIN CARREGADO!"
-notification.TextSize = isMobile and 12 or 14
-notification.Font = Enum.Font.SourceSansBold
-notification.BorderSizePixel = 0
-notification.Parent = screenGui
-
-pcall(function()
-	local notifCorner = Instance.new("UICorner")
-	notifCorner.CornerRadius = UDim.new(0, 6)
-	notifCorner.Parent = notification
-end)
-
--- Remove notificação
-spawn(function()
-	wait(3)
-	if notification then
-		notification:Destroy()
-	end
-end)
-
-print("🎮 UNIVERSAL ADMIN GUI LOADED!")
-if not isMobile then
-	print("📌 INSERT = Toggle | DELETE = Close")
-end
-print("📱 Mobile Compatible | 📋 Organized Tabs")
+print("Remote Spy carregado!")
+print("Pressione P para mostrar/ocultar")
+print("Use o botão 'Escanear' para encontrar novos remotes")
